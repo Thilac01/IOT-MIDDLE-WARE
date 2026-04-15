@@ -20,7 +20,7 @@ from database import security_engine, SecurityBase
 from models import BookWhitelist, SecurityAlert          # ensure models are imported
 from cdc_listener import start_cdc_listener
 from websocket_manager import ws_manager
-from routers import whitelist, tables, alerts
+from routers import whitelist, tables, alerts, devices
 from sshtunnel import SSHTunnelForwarder
 
 logging.basicConfig(
@@ -115,6 +115,7 @@ app.add_middleware(
 app.include_router(whitelist.router, prefix="/api/v1")
 app.include_router(tables.router, prefix="/api/v1")
 app.include_router(alerts.router, prefix="/api/v1")
+app.include_router(devices.router, prefix="/api/v1")
 
 # Serve frontend SPA
 app.mount("/static", StaticFiles(directory="../frontend"), name="static")

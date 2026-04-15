@@ -598,6 +598,13 @@ body {
 .pill-success { background: var(--success-bg); color: var(--success); }
 .pill-danger  { background: var(--danger-bg);  color: var(--danger); }
 .pill-warning { background: var(--warning-bg); color: var(--warning); }
+
+.blink {
+  animation: blink-animation 1s steps(2, start) infinite;
+}
+@keyframes blink-animation {
+  to { visibility: hidden; }
+}
 .pill-info    { background: var(--info-bg);    color: var(--info); }
 
 /* ══════════════════════════════════════════════════════

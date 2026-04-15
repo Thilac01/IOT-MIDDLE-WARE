@@ -45,3 +45,20 @@ class SecurityAlert(SecurityBase):
     acknowledged_by:  Mapped[Optional[str]]  = mapped_column(String(100), nullable=True)
     acknowledged_at:  Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
     raw_event:        Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+class RaspberryDevice(SecurityBase):
+    __tablename__ = "raspberry_devices"
+
+    id:             Mapped[int]            = mapped_column(Integer, primary_key=True, autoincrement=True)
+    device_id:      Mapped[str]            = mapped_column(String(100), unique=True, nullable=False, index=True)
+    name:           Mapped[str]            = mapped_column(String(100), nullable=False)
+    ip_address:     Mapped[Optional[str]]  = mapped_column(String(50), nullable=True)
+    floor_name:     Mapped[Optional[str]]  = mapped_column(String(50), default="Ground Floor")
+    x_pos:          Mapped[Optional[float]]= mapped_column(Integer, default=50) # Percentage on map
+    y_pos:          Mapped[Optional[float]]= mapped_column(Integer, default=50) # Percentage on map
+    last_heartbeat: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
+    status:         Mapped[str]            = mapped_column(String(20), default="OFFLINE") # ONLINE, OFFLINE, WARNING
+    cpu_usage:      Mapped[float]          = mapped_column(Integer, default=0)
+    ram_usage:      Mapped[float]          = mapped_column(Integer, default=0)
+    created_at:     Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at:     Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

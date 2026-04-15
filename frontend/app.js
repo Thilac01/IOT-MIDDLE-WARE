@@ -30,6 +30,7 @@ function showView(name) {
   if (name === 'tables' && allTableNames.length === 0) loadTableList();
   if (name === 'whitelist') loadWhitelist();
   if (name === 'alerts') loadAlerts();
+  if (name === 'devices') loadDevices();
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -82,6 +83,11 @@ function handleWSMessage(msg) {
       break;
     case 'whitelist_update':
       handleWhitelistUpdate(msg.data);
+      break;
+    case 'device_update':
+      if (document.getElementById('view-devices').classList.contains('active')) {
+        loadDevices();
+      }
       break;
     case 'pong':
       break; // keep-alive reply
@@ -508,7 +514,162 @@ function fmtDate(iso) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// 10.  INIT
+// 10. IOT DEVICES
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadDevices() {
+  const tbody = document.getElementById('devices-body');
+  const mapContainer = document.getElementById('device-nodes-container');
+  tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">Loading Devices…</td></tr>';
+  
+  try {
+    const devices = await apiFetch('/devices/');
+    mapContainer.innerHTML = ''; // clear floor map nodes
+    
+    if (!devices.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="empty-cell">No Gate/Security Controllers Connected</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = devices.map(d => {
+      const isOnline = d.status === 'ONLINE';
+      // Add node to map
+      const node = document.createElement('div');
+      node.style.position = 'absolute';
+      node.style.left = d.x_pos + '%';
+      node.style.top = d.y_pos + '%';
+      node.style.width = '14px';
+      node.style.height = '14px';
+      node.style.borderRadius = '50%';
+      node.style.background = isOnline ? 'var(--success)' : 'var(--danger)';
+      node.style.boxShadow = '0 0 10px ' + (isOnline ? 'var(--success)' : 'var(--danger)');
+      node.style.transform = 'translate(-50%, -50%)';
+      node.title = d.name + ' (' + d.status + ')';
+      
+      // Node Pulse Animation
+      const pulse = document.createElement('div');
+      pulse.style.position = 'absolute';
+      pulse.style.top = '0'; pulse.style.left = '0';
+      pulse.style.width = '100%'; pulse.style.height = '100%';
+      pulse.style.borderRadius = '50%';
+      pulse.style.background = 'inherit';
+      pulse.style.animation = isOnline ? 'pulse-kpi 2s infinite' : 'none';
+      node.appendChild(pulse);
+      
+      // Node label
+      const label = document.createElement('div');
+      label.textContent = d.name;
+      label.style.position = 'absolute';
+      label.style.top = '20px';
+      label.style.left = '50%';
+      label.style.transform = 'translateX(-50%)';
+      label.style.fontSize = '10px';
+      label.style.fontWeight = 'bold';
+      label.style.color = '#333';
+      label.style.whiteSpace = 'nowrap';
+      node.appendChild(label);
+      
+      mapContainer.appendChild(node);
+      
+      return `
+        <tr id="dev-${d.id}" style="cursor:pointer" onclick='openDeviceModal(${JSON.stringify(d).replace(/'/g, "&apos;")})'>
+          <td><strong>${escHtml(d.name)}</strong></td>
+          <td style="font-family:var(--font-mono);font-size:11px">${escHtml(d.device_id)}<br><span style="color:var(--text-muted)">${escHtml(d.ip_address || '')}</span></td>
+          <td>${escHtml(d.floor_name)}</td>
+          <td>${isOnline ? '<span class="pill pill-success">ONLINE</span>' : '<span class="pill pill-danger">OFFLINE</span>'}</td>
+          <td>${isOnline ? 'Just now' : fmtDate(d.last_heartbeat)}</td>
+        </tr>
+      `;
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-cell" style="color:var(--danger)">Error: ${e.message}</td></tr>`;
+  }
+}
+
+function toggleAddDeviceForm() {
+  const form = document.getElementById('add-device-form-container');
+  form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+async function addDevice(evt) {
+  evt.preventDefault();
+  const body = {
+    device_id: document.getElementById('dev-mac').value.trim(),
+    ip_address: document.getElementById('dev-ip').value.trim() || null,
+    name: document.getElementById('dev-name').value.trim(),
+    floor_name: document.getElementById('dev-floor').value.trim(),
+    x_pos: parseFloat(document.getElementById('dev-x').value) || 50,
+    y_pos: parseFloat(document.getElementById('dev-y').value) || 50,
+  };
+  
+  try {
+    await apiFetch('/devices/', { method: 'POST', body: JSON.stringify(body) });
+    showToast('Success', 'Slave Device registered / updated', 'success');
+    document.getElementById('add-device-form').reset();
+    toggleAddDeviceForm();
+    loadDevices();
+  } catch(e) {
+    showToast('Error', e.message, 'danger');
+  }
+}
+
+async function scanNetwork() {
+  const container = document.getElementById('scan-results');
+  container.innerHTML = '<span class="blink">Scanning subnet... please wait (takes ~5s)</span>';
+  try {
+    const res = await apiFetch('/devices/scan');
+    if (!res.scanned_devices || res.scanned_devices.length === 0) {
+      container.innerHTML = '<span style="color:var(--text-muted)">No devices found on local network ARP cache.</span>';
+      return;
+    }
+    
+    container.innerHTML = '<div style="margin-bottom: 5px;"><strong>Discovered Devices:</strong></div>' + 
+      res.scanned_devices.map(d => {
+        const isPi = d.is_pi ? '<span class="pill pill-success" style="font-size:10px;">Raspberry Pi</span>' : '';
+        return `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding: 6px; border-bottom: 1px solid var(--border);">
+            <div><strong style="font-family:var(--font-mono)">${d.mac}</strong> (${d.ip}) ${isPi}</div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="selectScannedDevice('${d.mac}', '${d.ip}')">Select</button>
+          </div>
+        `;
+      }).join('');
+      
+  } catch (e) {
+    container.innerHTML = `<span style="color:var(--danger)">Scan failed: ${e.message}</span>`;
+  }
+}
+
+function selectScannedDevice(mac, ip) {
+  document.getElementById('dev-mac').value = mac;
+  document.getElementById('dev-ip').value = ip;
+  if(!document.getElementById('dev-name').value) {
+    document.getElementById('dev-name').value = 'Pi Node ' + ip.split('.').pop();
+  }
+  document.getElementById('dev-name').focus();
+}
+
+function openDeviceModal(d) {
+  document.getElementById('device-modal').style.display = 'flex';
+  document.getElementById('modal-device-name').textContent = 'Terminal — ' + d.name;
+  
+  document.getElementById('mod-cpu').textContent = d.cpu_usage ? d.cpu_usage.toFixed(1) + '%' : '0%';
+  document.getElementById('mod-ram').textContent = d.ram_usage ? d.ram_usage.toFixed(1) + '%' : '0%';
+  
+  const statEl = document.getElementById('mod-status');
+  statEl.textContent = d.status;
+  statEl.style.color = d.status === 'ONLINE' ? 'var(--success)' : 'var(--danger)';
+  
+  const term = document.getElementById('ssh-terminal');
+  term.innerHTML = `Last login: ${new Date().toLocaleString()} from Master Node<br>pi@${d.name.replace(/\s+/g,'').toLowerCase()}:~ $ <span class="blink">_</span>`;
+}
+
+function mockTerminalPrint(cmd) {
+  const term = document.getElementById('ssh-terminal');
+  term.innerHTML = term.innerHTML.replace('<span class="blink">_</span>', cmd + '<br>Executing... [OK]<br>pi@node:~ $ <span class="blink">_</span>');
+  term.scrollTop = term.scrollHeight;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 11.  INIT
 // ══════════════════════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
   connectWS();

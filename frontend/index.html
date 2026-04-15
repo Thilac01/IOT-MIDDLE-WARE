@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=2" />
+  <link rel="stylesheet" href="/static/style.css?v=3" />
 </head>
 <body>
 
@@ -37,6 +37,10 @@
     <button class="nav-btn" id="nav-whitelist" onclick="showView('whitelist')">
       <svg viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
       Whitelist
+    </button>
+    <button class="nav-btn" id="nav-devices" onclick="showView('devices')">
+      <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+      IoT Maps
     </button>
     <button class="nav-btn" id="nav-alerts" onclick="showView('alerts')">
       <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -290,8 +294,111 @@
       </div>
     </div>
   </section>
+
+  <!-- ======================= 5. IOT DEVICES MAP ======================= -->
+  <section id="view-devices" class="view">
+    <div class="card map-card">
+      <div class="card-header">
+        <h2>Gate Monitors & Floor Map</h2>
+        <div class="header-actions">
+          <button class="btn btn-primary btn-sm" onclick="toggleAddDeviceForm()">+ Add New Slave</button>
+          <button class="btn btn-outline btn-sm" onclick="loadDevices()">↺ Refresh</button>
+        </div>
+      </div>
+      <!-- Add Device Form (Hidden by default) -->
+      <div id="add-device-form-container" style="display: none; padding: 20px; border-bottom: 1px solid var(--border); background: var(--bg-hover);">
+        <div style="margin-bottom: 20px; padding: 15px; border: 1px solid var(--accent); border-radius: 4px; background: rgba(244, 123, 32, 0.05);">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h4 style="margin: 0;">Auto-Discover Devices</h4>
+            <button class="btn btn-outline btn-sm" onclick="scanNetwork()">Scan Subnet (ARP)</button>
+          </div>
+          <div id="scan-results" style="margin-top: 10px; font-size: 13px;">
+             <!-- Scan results will appear here -->
+          </div>
+        </div>
+        <h4 style="margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 5px;">Manual Entry</h4>
+        <form id="add-device-form" class="form-row" onsubmit="addDevice(event)">
+          <div class="form-group"><label>Device MAC</label><input type="text" id="dev-mac" placeholder="e.g. b8:27:eb:xx:xx" required /></div>
+          <div class="form-group"><label>Device IP</label><input type="text" id="dev-ip" placeholder="e.g. 192.168.1.10" /></div>
+          <div class="form-group"><label>Name</label><input type="text" id="dev-name" placeholder="Gate 1" required /></div>
+          <div class="form-group"><label>Floor Name</label><input type="text" id="dev-floor" placeholder="Ground" required /></div>
+          <div class="form-group"><label>Map X pos %</label><input type="number" id="dev-x" placeholder="50" required /></div>
+          <div class="form-group"><label>Map Y pos %</label><input type="number" id="dev-y" placeholder="50" required /></div>
+          <div class="form-group form-group-btn" style="margin-top:20px;">
+            <button type="submit" class="btn btn-primary">Register Master-node</button>
+          </div>
+        </form>
+      </div>
+      <div class="map-container" id="floor-map" style="position: relative; width: 100%; height: 300px; background: #e0e5eb; border-bottom: 1px solid var(--border); overflow: hidden;">
+        <!-- Example floor map visual using CSS grid or simple image -->
+        <div style="position: absolute; top: 10px; left: 10px; color: var(--text-muted); font-size: 11px; font-weight: bold; z-index: 0">JPL LIBRARY GATES</div>
+        <div id="device-nodes-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;"></div>
+      </div>
+      <div class="card-header" style="border-top: 1px solid var(--border);">
+        <h2>Active Raspberry Pi Nodes</h2>
+      </div>
+      <table class="data-table" style="width: 100%;">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>MAC / Device ID</th>
+            <th>Location</th>
+            <th>Status</th>
+            <th>Last Heartbeat</th>
+          </tr>
+        </thead>
+        <tbody id="devices-body">
+          <tr><td colspan="5" class="empty-cell">Loading IoT Endpoints...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Individual Device Dashboard Modal Overlay -->
+  <div id="device-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; align-items:center; justify-content:center;">
+    <div class="card" style="width: 700px; max-width: 90%; max-height: 90%; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="card-header" style="background:#1E2228; color:#fff">
+        <h2 id="modal-device-name" style="color:var(--accent)">Raspberry Pi Shell</h2>
+        <button class="btn btn-sm" style="background:transparent; color:#fff" onclick="document.getElementById('device-modal').style.display='none'">✖ Close</button>
+      </div>
+      <div style="padding: 20px; flex: 1; overflow-y: auto; background: var(--bg-surface);">
+        <div style="display:flex; gap: 20px; margin-bottom: 20px;">
+          <div class="kpi-card" style="flex:1">
+            <div>
+              <div class="kpi-value" id="mod-cpu">0%</div>
+              <div class="kpi-label">CPU Usage</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="flex:1">
+            <div>
+              <div class="kpi-value" id="mod-ram">0%</div>
+              <div class="kpi-label">RAM Usage</div>
+            </div>
+          </div>
+          <div class="kpi-card" style="flex:1">
+            <div>
+              <div class="kpi-value" id="mod-status" style="font-size:18px;">ONLINE</div>
+              <div class="kpi-label">System Status</div>
+            </div>
+          </div>
+        </div>
+        
+        <h4>SSH Remote Terminal</h4>
+        <div style="background:#0b0e14; color:#00ff00; font-family:var(--font-mono); font-size:12px; padding:15px; border-radius:4px; height: 180px; overflow-y:auto; margin-top:10px;" id="ssh-terminal">
+          Last login: Wed Apr 15 14:02:12 2026 from 192.168.1.100<br>
+          pi@gate-monitor:~ $ <span class="blink">_</span>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:20px;">
+          <button class="btn btn-outline" onclick="mockTerminalPrint('ping -c 4 backend-server')">Ping Test</button>
+          <button class="btn btn-outline" onclick="mockTerminalPrint('systemctl status cdc-slave')">Check Slave Status</button>
+          <button class="btn btn-outline" onclick="mockTerminalPrint('python sync_whitelist.py')">Force Core Sync</button>
+          <button class="btn btn-danger" onclick="mockTerminalPrint('sudo reboot')">Restart Physical Slave</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </main>
 
-<script src="/static/app.js?v=3"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>
