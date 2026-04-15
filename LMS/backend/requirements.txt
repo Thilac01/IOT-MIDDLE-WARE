@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+aiomysql
+mysql-replication
+websockets
+python-dotenv
+pydantic
+pydantic-settings
+httpx
+aiofiles
