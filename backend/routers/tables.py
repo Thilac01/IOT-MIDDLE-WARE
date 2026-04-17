@@ -37,6 +37,11 @@ async def get_table_rows(
     Validates the table name against SHOW TABLES to prevent SQL injection.
     """
     # Whitelist the table name against actual DB tables
+    if table_name == "circulation_active":
+        return {"table": "circulation_active", "rows": await _get_active_loans_internal(session)}
+    if table_name == "circulation_returns":
+        return {"table": "circulation_returns", "rows": await _get_recent_returns_internal(session)}
+
     tables_result = await session.execute(text("SHOW TABLES"))
     valid_tables = {row[0] for row in tables_result.fetchall()}
     if table_name not in valid_tables:
@@ -78,3 +83,61 @@ async def get_table_rows(
         "page_size": page_size,
         "rows": rows,
     }
+
+
+async def _get_active_loans_internal(session: AsyncSession) -> list[dict[str, Any]]:
+    """Internal helper to fetch recent active loans with joins."""
+    query = text("""
+        SELECT 
+            i.issue_id, i.issuedate, i.date_due, i.branchcode,
+            it.barcode, b.title, p.firstname, p.surname
+        FROM issues i
+        LEFT JOIN items it ON i.itemnumber = it.itemnumber
+        LEFT JOIN biblio b ON it.biblionumber = b.biblionumber
+        LEFT JOIN borrowers p ON i.borrowernumber = p.borrowernumber
+        ORDER BY i.issuedate DESC
+        LIMIT 10
+    """)
+    result = await session.execute(query)
+    rows = result.mappings().all()
+    return [
+        {
+            "issue_id": r["issue_id"],
+            "issuedate": r["issuedate"],
+            "date_due": r["date_due"],
+            "branch": r["branchcode"],
+            "barcode": r["barcode"],
+            "title": r["title"],
+            "borrower": f"{r['firstname']} {r['surname']}".strip() if r['firstname'] or r['surname'] else "Unknown"
+        }
+        for r in rows
+    ]
+
+
+async def _get_recent_returns_internal(session: AsyncSession) -> list[dict[str, Any]]:
+    """Internal helper to fetch recent returns with joins."""
+    query = text("""
+        SELECT 
+            i.issue_id, i.issuedate, i.returndate, i.branchcode,
+            it.barcode, b.title, p.firstname, p.surname
+        FROM old_issues i
+        LEFT JOIN items it ON i.itemnumber = it.itemnumber
+        LEFT JOIN biblio b ON it.biblionumber = b.biblionumber
+        LEFT JOIN borrowers p ON i.borrowernumber = p.borrowernumber
+        ORDER BY i.returndate DESC
+        LIMIT 10
+    """)
+    result = await session.execute(query)
+    rows = result.mappings().all()
+    return [
+        {
+            "issue_id": r["issue_id"],
+            "issuedate": r["issuedate"],
+            "returndate": r["returndate"],
+            "branch": r["branchcode"],
+            "barcode": r["barcode"],
+            "title": r["title"],
+            "borrower": f"{r['firstname']} {r['surname']}".strip() if r['firstname'] or r['surname'] else "Unknown"
+        }
+        for r in rows
+    ]

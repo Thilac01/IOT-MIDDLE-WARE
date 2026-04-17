@@ -62,3 +62,28 @@ class RaspberryDevice(SecurityBase):
     ram_usage:      Mapped[float]          = mapped_column(Integer, default=0)
     created_at:     Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at:     Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class User(SecurityBase):
+    __tablename__ = "users"
+
+    id:             Mapped[int]            = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username:       Mapped[str]            = mapped_column(String(50), unique=True, nullable=False, index=True)
+    email:          Mapped[Optional[str]]  = mapped_column(String(100), unique=True, nullable=True)
+    first_name:     Mapped[Optional[str]]  = mapped_column(String(50), nullable=True)
+    last_name:      Mapped[Optional[str]]  = mapped_column(String(50), nullable=True)
+    hashed_password:Mapped[str]            = mapped_column(String(255), nullable=False)
+    role:           Mapped[str]            = mapped_column(String(20), default="admin")
+    is_active:      Mapped[int]            = mapped_column(SmallInteger, default=1)
+    created_at:     Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AuditLog(SecurityBase):
+    __tablename__ = "audit_logs"
+
+    id:             Mapped[int]            = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username:       Mapped[str]            = mapped_column(String(50), nullable=False, index=True)
+    action:         Mapped[str]            = mapped_column(String(100), nullable=False)
+    details:        Mapped[Optional[str]]  = mapped_column(Text, nullable=True)
+    timestamp:      Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+

@@ -10,7 +10,8 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_security_session
-from models import SecurityAlert
+from models import SecurityAlert, User
+from routers.auth import get_current_user, log_audit
 
 router = APIRouter(prefix="/alerts", tags=["Security Alerts"])
 
@@ -31,14 +32,14 @@ class AlertOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class AcknowledgeBody(BaseModel):
-    acknowledged_by: str = "admin"
+
 
 
 @router.get("/", response_model=list[AlertOut])
 async def list_alerts(
     unacknowledged_only: bool = False,
     limit: int = Query(100, le=500),
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_security_session),
 ):
     """Fetch recent security alerts, newest first."""
@@ -52,7 +53,7 @@ async def list_alerts(
 @router.post("/{alert_id}/acknowledge", response_model=AlertOut)
 async def acknowledge_alert(
     alert_id: int,
-    body: AcknowledgeBody,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_security_session),
 ):
     """Mark an alert as acknowledged."""
@@ -63,8 +64,9 @@ async def acknowledge_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found.")
     alert.acknowledged = 1
-    alert.acknowledged_by = body.acknowledged_by
+    alert.acknowledged_by = current_user.username
     alert.acknowledged_at = datetime.utcnow()
     await session.commit()
     await session.refresh(alert)
+    await log_audit(session, current_user.username, "ALERT_ACK", f"Acknowledged alert {alert_id}")
     return alert

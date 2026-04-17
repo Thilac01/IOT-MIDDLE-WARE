@@ -11,3 +11,8 @@ httpx
 aiofiles
 sshtunnel
 paramiko
+python-jose[cryptography]
+passlib[bcrypt]
+paho-mqtt
+python-multipart
+firebase-admin

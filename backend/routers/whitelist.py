@@ -10,8 +10,9 @@ from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_security_session
-from models import BookWhitelist
+from models import BookWhitelist, User
 from websocket_manager import ws_manager
+from routers.auth import get_current_user, log_audit
 
 router = APIRouter(prefix="/whitelist", tags=["Whitelist"])
 
@@ -22,7 +23,6 @@ class WhitelistCreate(BaseModel):
     isbn: Optional[str] = None
     title: str
     author: Optional[str] = None
-    added_by: str = "admin"
     reason: Optional[str] = None
 
 
@@ -66,6 +66,7 @@ async def list_whitelist(
 @router.post("/", response_model=WhitelistOut, status_code=status.HTTP_201_CREATED)
 async def add_to_whitelist(
     body: WhitelistCreate,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_security_session),
 ):
     """Add a new book barcode to the whitelist."""
@@ -75,10 +76,12 @@ async def add_to_whitelist(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Barcode already in whitelist.")
 
-    entry = BookWhitelist(**body.model_dump())
+    entry = BookWhitelist(**body.model_dump(), added_by=current_user.username)
     session.add(entry)
     await session.commit()
     await session.refresh(entry)
+
+    await log_audit(session, current_user.username, "WHITELIST_ADD", f"Added barcode {body.barcode} - {body.title}")
 
     # Notify dashboard
     await ws_manager.broadcast("whitelist_update", {"action": "add", "barcode": body.barcode, "title": body.title})
@@ -89,6 +92,7 @@ async def add_to_whitelist(
 async def update_whitelist_entry(
     entry_id: int,
     body: WhitelistUpdate,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_security_session),
 ):
     """Update an existing whitelist entry."""
@@ -104,6 +108,7 @@ async def update_whitelist_entry(
 
     await session.commit()
     await session.refresh(entry)
+    await log_audit(session, current_user.username, "WHITELIST_UPDATE", f"Updated entry {entry_id}")
     await ws_manager.broadcast("whitelist_update", {"action": "update", "id": entry_id})
     return entry
 
@@ -111,6 +116,7 @@ async def update_whitelist_entry(
 @router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_from_whitelist(
     entry_id: int,
+    current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_security_session),
 ):
     """Soft-delete: set is_active = 0."""
@@ -123,4 +129,5 @@ async def remove_from_whitelist(
 
     entry.is_active = 0
     await session.commit()
+    await log_audit(session, current_user.username, "WHITELIST_DELETE", f"Soft-deleted entry {entry_id}")
     await ws_manager.broadcast("whitelist_update", {"action": "remove", "id": entry_id})

@@ -14,8 +14,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_security_session
-from models import RaspberryDevice, BookWhitelist
+from models import RaspberryDevice, BookWhitelist, User
 from websocket_manager import ws_manager
+from routers.auth import get_current_user, log_audit
 
 router = APIRouter(prefix="/devices", tags=["IoT Devices"])
 
@@ -45,7 +46,7 @@ class DeviceOut(BaseModel):
     model_config = {"from_attributes": True}
 
 @router.get("/", response_model=list[DeviceOut])
-async def list_devices(session: AsyncSession = Depends(get_security_session)):
+async def list_devices(current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_security_session)):
     """List all IoT devices and mark them offline if heartbeat > 60s."""
     result = await session.execute(select(RaspberryDevice))
     devices = result.scalars().all()
@@ -65,7 +66,7 @@ async def list_devices(session: AsyncSession = Depends(get_security_session)):
     return devices
 
 @router.post("/", response_model=DeviceOut)
-async def register_device(body: DeviceCreate, session: AsyncSession = Depends(get_security_session)):
+async def register_device(body: DeviceCreate, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_security_session)):
     """Register or update coordinates of an IoT Raspberry Pi."""
     result = await session.execute(select(RaspberryDevice).where(RaspberryDevice.device_id == body.device_id))
     device = result.scalar_one_or_none()
@@ -76,12 +77,15 @@ async def register_device(body: DeviceCreate, session: AsyncSession = Depends(ge
         device.ip_address = body.ip_address
         device.x_pos = body.x_pos
         device.y_pos = body.y_pos
+        is_new = False
     else:
         device = RaspberryDevice(**body.model_dump())
         session.add(device)
+        is_new = True
         
     await session.commit()
     await session.refresh(device)
+    await log_audit(session, current_user.username, "DEVICE_REGISTER", f"{'Added' if is_new else 'Updated'} device {body.name} ({body.device_id})")
     await ws_manager.broadcast("device_update", {"action": "register", "device_id": device.device_id})
     return device
 
@@ -109,6 +113,20 @@ async def device_heartbeat(device_id: str, body: Optional[HeartbeatPayload] = No
     await ws_manager.broadcast("device_update", {"action": "heartbeat", "device_id": device_id})
     return {"status": "ok"}
 
+@router.delete("/{device_id}")
+async def delete_device(device_id: str, current_user: User = Depends(get_current_user), session: AsyncSession = Depends(get_security_session)):
+    """Delete a registered Rasberry Pi."""
+    result = await session.execute(select(RaspberryDevice).where(RaspberryDevice.device_id == device_id))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found.")
+    
+    await session.delete(device)
+    await log_audit(session, current_user.username, "DEVICE_DELETE", f"Deleted device {device.name} ({device.device_id})")
+    await session.commit()
+    await ws_manager.broadcast("device_update", {"action": "delete", "device_id": device_id})
+    return {"status": "ok"}
+
 @router.get("/config/whitelist")
 async def get_device_whitelist(session: AsyncSession = Depends(get_security_session)):
     """IoT devices call this to get the array of allowed barcodes."""
@@ -116,7 +134,7 @@ async def get_device_whitelist(session: AsyncSession = Depends(get_security_sess
     return {"whitelisted_barcodes": [row[0] for row in result.fetchall()]}
 
 @router.get("/scan")
-async def scan_network():
+async def scan_network(current_user: User = Depends(get_current_user)):
     """Scans local network ARP cache to automatically find Raspberry Pi MACs asynchronously."""
     try:
         # Pre-populate ARP cache by forcing a quick subnet connection spray (takes ~0.5s total)

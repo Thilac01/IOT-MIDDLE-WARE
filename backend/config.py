@@ -39,27 +39,46 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     secret_key: str = "b95f517f43f0b42c15000dcfb9165a9296f2b5bd1e5a58dfc0bc12d1e29cfbcc"
+    algorithm: str = "HS256"
+    access_token_expire_minutes: int = 43200
     log_level: str = "INFO"
+
+    # --- Firebase ---
+    firebase_project_id: str = "jpl-security-monitor"
+    firebase_service_account_path: str = "firebase-service-account.json"
+
+    @property
+    def _db_host(self) -> str:
+        """Returns 127.0.0.1 when SSH tunnel is active (tunnel binds local 3307)."""
+        return "127.0.0.1" if self.use_ssh_tunnel else self.replica_host
+
+    @property
+    def _db_port(self) -> int:
+        """Returns 3307 (tunnel local port) when SSH tunnel is active."""
+        return 3307 if self.use_ssh_tunnel else self.replica_port
 
     @property
     def replica_dsn(self) -> str:
         """Async SQLAlchemy DSN for the Koha read replica.
         Password is URL-encoded to handle special chars like @ and #.
+        Routes through SSH tunnel (127.0.0.1:3307) when use_ssh_tunnel=True.
         """
         pwd = quote_plus(self.replica_password)
         return (
             f"mysql+aiomysql://{self.replica_user}:{pwd}"
-            f"@{self.replica_host}:{self.replica_port}/{self.replica_db}"
+            f"@{self._db_host}:{self._db_port}/{self.replica_db}"
             f"?charset=utf8mb4"
         )
 
     @property
     def security_dsn(self) -> str:
-        """Async SQLAlchemy DSN for the security monitor database."""
+        """Async SQLAlchemy DSN for the security monitor database.
+        Routes through SSH tunnel (127.0.0.1:3307) when use_ssh_tunnel=True.
+        """
         pwd = quote_plus(self.replica_password)
         return (
             f"mysql+aiomysql://{self.replica_user}:{pwd}"
-            f"@{self.replica_host}:{self.replica_port}/{self.security_db}"
+            f"@{self._db_host}:{self._db_port}/{self.security_db}"
             f"?charset=utf8mb4"
         )
 
